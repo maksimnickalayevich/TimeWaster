@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"os/user"
 	"strings"
@@ -23,12 +24,20 @@ type GoProc struct {
 	outBuffer       *bytes.Buffer
 	errBuffer       *bytes.Buffer
 	colorogo        Colorogo
+	fileManager     FileManager
+	WorkingPath     *string
 }
 
-// CheckProcesses Tries to find process in list of all processes
-// if found -> ptr to initialized GoApp
-func (gp *GoProc) CheckProcesses() (*WasterProcess, error) {
+// InitGoProc Initializes all the necessary structs
+// and tries to find processes that need time-tracking,
+// adds them to struct instance
+func (gp *GoProc) InitGoProc() (*[]WasterProcess, error) {
 	gp.colorogo = InitColorogo()
+	gp.fileManager = FileManager{workingPath: gp.WorkingPath}
+	err := gp.fileManager.DetectFiles()
+	if err != nil {
+		return nil, err
+	}
 
 	// Init buffers for out and err
 	gp.outBuffer = &bytes.Buffer{}
@@ -46,33 +55,27 @@ func (gp *GoProc) CheckProcesses() (*WasterProcess, error) {
 
 	csv := string(gp.outBuffer.Bytes())
 
-	wasterProcess := gp.IsRunning(csv)
-	if wasterProcess == nil {
+	wasterProcesses := gp.FindProcesses(csv)
+	if len(*wasterProcesses) == 0 {
 		return nil, nil
 	}
 
-	return wasterProcess, nil
+	return wasterProcesses, nil
 }
 
-// IsRunning Check if all the processes from app/ folder is running
-func (gp *GoProc) IsRunning(csvOut string) *WasterProcess {
-	// TODO: found process name from file from apps/
-	process := "WowClassic.exe"
-	processesList := gp.ParseCsv(csvOut, "")
+// FindProcesses finds processes from apps/ folder that are running
+func (gp *GoProc) FindProcesses(csvOut string) *[]WasterProcess {
+	filesList := gp.fileManager.DetectedFiles
+
+	rawProcessesToTrack := gp.ParseCsv(csvOut, "", *filesList)
 	// Create WasterProcesses and add to instance of the app
-	gp.createWasterProcess(&processesList)
+	gp.createWasterProcess(&rawProcessesToTrack)
 
-	// Get the process if it exists in list of all processes
-	wp, ok := gp.processesLookup[process]
-	if ok == false {
-		return nil
-	}
-
-	return &wp
+	return &gp.processes
 }
 
 // ParseCsv parses the csv output of the cmd according to specified separator (sep arg)
-func (gp *GoProc) ParseCsv(out string, sep string) []map[string]string {
+func (gp *GoProc) ParseCsv(out string, sep string, processesToTrack map[string]os.FileInfo) []map[string]string {
 	// init default value
 	if sep == "" {
 		sep = ","
@@ -85,12 +88,21 @@ func (gp *GoProc) ParseCsv(out string, sep string) []map[string]string {
 			continue
 		}
 		splittedLine := strings.Split(v, sep)
+
 		if len(splittedLine) < MIN_PROC_LEN {
 			log.Printf(gp.colorogo.Red+"Unable to parse process %s"+gp.colorogo.Reset, splittedLine[0])
 			continue
 		}
+
+		procName := strings.Replace(splittedLine[0], "\"", "", -1)
+
+		// Don't parse processes that are not necessary for time-tracking
+		if _, ok := processesToTrack[procName]; ok == false {
+			continue
+		}
+
 		processInfo := map[string]string{
-			"ProcessName": strings.Replace(splittedLine[0], "\"", "", -1),
+			"ProcessName": procName,
 			"Pid":         strings.Replace(splittedLine[1], "\"", "", -1),
 			"MemUsage":    strings.Replace(splittedLine[4], "\"", "", -1),
 		}

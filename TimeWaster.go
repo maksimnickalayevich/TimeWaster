@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"syscall"
 )
 
 type TimeWaster struct {
@@ -12,6 +13,7 @@ type TimeWaster struct {
 	IsRunning     bool
 	colorogo      helpers.Colorogo
 	processFinder helpers.GoProc
+	workingPath   *string
 }
 
 func (t *TimeWaster) StartMainLoop(platform string) int {
@@ -43,21 +45,52 @@ func (t *TimeWaster) StartMainLoop(platform string) int {
 	return 1
 }
 
-// TrackTime Finds running processes that are set to track time if apps/ folder
+// TrackTime Finds running processes that are set to track time in apps/ folder
 func (t *TimeWaster) TrackTime() {
 	fmt.Println(t.colorogo.Yellow + "Please, make sure, that apps you need to track are in apps/ folder" + t.colorogo.Reset)
 
 	// TODO: Create animation of pending app start
-	fmt.Println(t.colorogo.Green + "Waiting for your app to start" + t.colorogo.Reset)
 	log.SetFlags(log.Ldate | log.Lshortfile)
 
-	appProcess, err := t.processFinder.CheckProcesses()
-	if appProcess == nil {
-		log.Printf(t.colorogo.Red + "No process to track were found. Please, be sure your app is running." + t.colorogo.Reset)
-		log.Printf(t.colorogo.Yellow + "Press any button with option again.")
+	// Init processFinder and add working path to it
+	t.processFinder = helpers.GoProc{WorkingPath: t.workingPath}
+
+	processes, err := t.processFinder.InitGoProc()
+	if processes == nil {
+		log.Println(t.colorogo.Red + "No process to track were found. Please, be sure your app is running." + t.colorogo.Reset)
+		fmt.Println(t.colorogo.Red + "Waiting for your app to start" + t.colorogo.Reset)
+		log.Println(t.colorogo.Yellow + "Press any button with option again." + t.colorogo.Reset)
 		return
 	}
 	helpers.HandleError(err, "Error occurred", true)
 
-	fmt.Printf("Found proccess: %+v", appProcess)
+	log.Println(t.colorogo.Yellow + "Starting time-tracking of your apps..." + t.colorogo.Reset)
+	derefProcesses := *processes
+	// TODO: check status periodically
+	// TODO: FindProcess always finds process even if it's not running
+	// TODO: tasklist /FI "pid eq {pid}"
+	for len(derefProcesses) > 0 {
+		for i, app := range derefProcesses {
+			status := t.checkAppStatus(app)
+			if status == false {
+				derefProcesses, err = helpers.Remove(derefProcesses, i)
+			}
+		}
+	}
+
+	log.Println(t.colorogo.Green + "Your apps were closed." + t.colorogo.Reset)
+
+}
+
+// checkAppStatus Checks does app still running, or it's now closed
+// Output: running -> true; closed -> false
+// N.B. os.FindProcess() doesn't work as it always finds process even if
+// it's not running
+func (t *TimeWaster) checkAppStatus(app helpers.WasterProcess) bool {
+	const da = syscall.STANDARD_RIGHTS_READ | syscall.PROCESS_QUERY_INFORMATION | syscall.SYNCHRONIZE
+	_, err := syscall.OpenProcess(da, false, uint32(app.GetPid()))
+	if err != nil {
+		return false
+	}
+	return true
 }
