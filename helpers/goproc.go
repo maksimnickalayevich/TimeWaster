@@ -6,7 +6,6 @@ package helpers
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -42,10 +41,6 @@ func (gp *GoProc) InitGoProc() (*[]WasterProcess, error) {
 	// Init buffers for out and err
 	gp.outBuffer = &bytes.Buffer{}
 	gp.errBuffer = &bytes.Buffer{}
-
-	username, err := gp.GetUsername()
-	HandleError(err, gp.colorogo.Red+"Unable to get user", false)
-	fmt.Println(gp.colorogo.Purple + "Username found: " + username + gp.colorogo.Reset)
 
 	cmd := exec.Command("tasklist", "/fo", "csv", "/nh")
 	cmd.Stdout = gp.outBuffer
