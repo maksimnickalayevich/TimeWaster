@@ -14,16 +14,16 @@ func Setup() (string, error) {
 	helpers.HandleError(err, "Unable to get working directory.", true)
 
 	// Create apps/ folder if it doesn't exist
-	appsDir := "apps"
-	exists, err := doesExist(appsDir)
+	fullWorkingPath := workingPath + "\\apps"
+	exists, err := doesExist(fullWorkingPath)
 	helpers.HandleError(err, "Directory apps/ doesn't exist", false)
 	if exists == false {
-		if err := os.Mkdir(workingPath+"/"+appsDir, os.ModeDir); err != nil {
-			log.Fatalf("Unable to create directory with specified name %s", appsDir)
+		if err := os.Mkdir(fullWorkingPath, os.ModeDir); err != nil {
+			log.Fatalf("Unable to create directory in path %s", workingPath)
 			return "", err
 		}
 	}
-	return appsDir, nil
+	return fullWorkingPath, nil
 
 }
 
