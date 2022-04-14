@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -16,8 +15,6 @@ type TimeWaster struct {
 	colorogo      helpers.Colorogo
 	processFinder helpers.GoProc
 	workingPath   *string
-	access        uint32
-	timeDelay     uint32
 }
 
 func (t *TimeWaster) StartMainLoop(platform string) int {
@@ -27,7 +24,7 @@ func (t *TimeWaster) StartMainLoop(platform string) int {
 	// Binds colorogo to TimeWaster
 	t.colorogo = colorogo
 
-	fmt.Printf(colorogo.Blue+"Welcome to TimeWaster for %s!\n", strings.ToTitle(platform))
+	fmt.Printf(colorogo.Blue+"Welcome to TimeWaster for %s!\n", platform)
 	// TODO: Move this to separate struct in order to have access to the menu from every part of a programm
 	fmt.Println(colorogo.Purple + "What would you like to do?")
 	fmt.Println(colorogo.Purple + "1. Track time of your app \n2. Press q/2 to exit")
@@ -161,12 +158,15 @@ func (t *TimeWaster) catchKeyboardEvent(inProcess chan bool, ctxCancel context.C
 // N.B. os.FindProcess() doesn't work as it always finds process even if
 // it's not running
 func (t *TimeWaster) checkAppStatus(app helpers.WasterProcess) bool {
-	// TODO: This still doesn't define was it closed or not
-	const da = syscall.STANDARD_RIGHTS_READ | syscall.PROCESS_QUERY_INFORMATION | syscall.SYNCHRONIZE
-	p, err := syscall.OpenProcess(da, false, uint32(app.GetPid()))
-	if err != nil {
+	p, _ := syscall.OpenProcess(ACCESS, false, uint32(app.GetPid()))
+	var exitCode uint32
+	exitCodeErr := syscall.GetExitCodeProcess(p, &exitCode)
+	if exitCodeErr != nil {
+		log.Printf(t.colorogo.Red+"Smth went wrong %e"+t.colorogo.Reset, exitCodeErr)
 		return false
 	}
-	fmt.Println(p)
+	if exitCode != STILL_ALIVE {
+		return false
+	}
 	return true
 }
