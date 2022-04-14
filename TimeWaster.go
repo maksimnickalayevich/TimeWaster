@@ -28,6 +28,7 @@ func (t *TimeWaster) StartMainLoop(platform string) int {
 	t.colorogo = colorogo
 
 	fmt.Printf(colorogo.Blue+"Welcome to TimeWaster for %s!\n", strings.ToTitle(platform))
+	// TODO: Move this to separate struct in order to have access to the menu from every part of a programm
 	fmt.Println(colorogo.Purple + "What would you like to do?")
 	fmt.Println(colorogo.Purple + "1. Track time of your app \n2. Press q/2 to exit")
 	for t.IsRunning {
@@ -42,7 +43,7 @@ func (t *TimeWaster) StartMainLoop(platform string) int {
 		case "1":
 			t.TrackTime()
 		default:
-			fmt.Println(t.colorogo.Red + "You should choose only from suggested options")
+			fmt.Println(t.colorogo.Red + "You should choose only from suggested options: 1; q/2")
 		}
 	}
 	fmt.Print(colorogo.Reset)
@@ -53,8 +54,6 @@ func (t *TimeWaster) StartMainLoop(platform string) int {
 
 // TrackTime Finds running processes that are set to track time in apps/ folder
 func (t *TimeWaster) TrackTime() {
-	t.access = syscall.STANDARD_RIGHTS_READ | syscall.PROCESS_QUERY_INFORMATION | syscall.SYNCHRONIZE
-
 	username, err := t.processFinder.GetUsername()
 
 	helpers.HandleError(err, t.colorogo.Red+"Unable to get user", false)
@@ -77,16 +76,19 @@ func (t *TimeWaster) TrackTime() {
 
 	log.Println(t.colorogo.Yellow + "Starting time-tracking of your apps..." + t.colorogo.Reset)
 
-	t.startConcurrentTrack(time.Duration(2)*time.Second, processes)
+	t.startConcurrentTrack(time.Duration(5)*time.Second, processes)
 }
 
 func (t *TimeWaster) startConcurrentTrack(duration time.Duration, apps *[]helpers.WasterProcess) {
 	inProcess := make(chan bool)
 	ctx, cancel := context.WithCancel(context.Background())
+	// Create goroutines
 	go t.checkStatus(duration, inProcess, apps, ctx)
 	go t.closeRequest(inProcess, cancel)
 	inProcess <- true
+	// block until write in close request loop
 	<-inProcess
+
 	return
 }
 
@@ -101,15 +103,15 @@ func (t *TimeWaster) checkStatus(duration time.Duration, inProcess chan bool, ap
 	// Loop to trigger checking status every duration seconds
 	// until app is closed and until user didn't stop tracking
 	for running && len(derefApps) > 0 {
-		now := time.Now().UTC().Unix()
-		difference := now - lastCheck // e.g. 20 - 10 == duration->check; else 20 - 13 == 7 don't check;
+		select {
+		case <-ctx.Done():
+			log.Println(t.colorogo.Green + "You triggered full stop of time-tracking" + t.colorogo.Reset)
+			return
+		default:
+			now := time.Now().UTC().Unix()
+			difference := now - lastCheck
 
-		if difference >= int64(duration.Seconds()) {
-			select {
-			case <-ctx.Done():
-				log.Println(t.colorogo.Green + "You triggered full stop of time-tracking" + t.colorogo.Reset)
-				return
-			default:
+			if difference >= int64(duration.Seconds()) {
 				log.Println(t.colorogo.Yellow + "Checking status of running apps" + t.colorogo.Reset)
 				for i, app := range derefApps {
 					status := t.checkAppStatus(app)
@@ -120,29 +122,38 @@ func (t *TimeWaster) checkStatus(duration time.Duration, inProcess chan bool, ap
 				lastCheck = time.Now().UTC().Unix()
 			}
 		}
-
 	}
+	log.Println(t.colorogo.Blue + "Your apps were closed" + t.colorogo.Reset)
 }
 
 func (t *TimeWaster) closeRequest(inProcess chan bool, ctxCancel context.CancelFunc) {
 	log.Println(t.colorogo.Yellow + "To stop tracking press q or 2" + t.colorogo.Reset)
 	for {
-		var closeEvent string
-		_, err := fmt.Scan(&closeEvent)
-		if err != nil {
-			fmt.Println("Wrong button pressed")
-		}
-		switch closeEvent {
-		case "q", "2":
-			inProcess <- false
-			close(inProcess)
-			ctxCancel()
-			return
-		default:
-			fmt.Println(t.colorogo.Yellow + "Use buttons q or 2 to stop tracking time" + t.colorogo.Reset)
+		res := t.catchKeyboardEvent(inProcess, ctxCancel)
+		if !res {
+			break
 		}
 	}
+}
 
+// catchKeyboardEvent if false -> close the check status goroutine; if true -> continue asking the input
+func (t *TimeWaster) catchKeyboardEvent(inProcess chan bool, ctxCancel context.CancelFunc) bool {
+	// Catch keyboard button press
+	var closeEvent string
+	_, err := fmt.Scan(&closeEvent)
+	if err != nil {
+		fmt.Println("Wrong button pressed")
+	}
+	switch closeEvent {
+	case "q", "2":
+		inProcess <- false
+		close(inProcess) // Free resources
+		ctxCancel()      // Close goroutine with time-tracking
+		return false
+	default:
+		fmt.Println(t.colorogo.Yellow + "Use buttons q or 2 to stop tracking time" + t.colorogo.Reset)
+		return true
+	}
 }
 
 // checkAppStatus Checks does app still running, or it's now closed
@@ -150,9 +161,12 @@ func (t *TimeWaster) closeRequest(inProcess chan bool, ctxCancel context.CancelF
 // N.B. os.FindProcess() doesn't work as it always finds process even if
 // it's not running
 func (t *TimeWaster) checkAppStatus(app helpers.WasterProcess) bool {
-	_, err := syscall.OpenProcess(t.access, false, uint32(app.GetPid()))
+	// TODO: This still doesn't define was it closed or not
+	const da = syscall.STANDARD_RIGHTS_READ | syscall.PROCESS_QUERY_INFORMATION | syscall.SYNCHRONIZE
+	p, err := syscall.OpenProcess(da, false, uint32(app.GetPid()))
 	if err != nil {
 		return false
 	}
+	fmt.Println(p)
 	return true
 }
