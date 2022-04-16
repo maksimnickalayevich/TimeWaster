@@ -16,10 +16,6 @@ type WasterResult struct {
 	TotalTime    string    `json:"totalTime"`
 	LastSession  string    `json:"lastSession"`
 	Name         string    `json:"name"`
-	//Month        time.Month    `json:"month"`
-	//Day          time.Weekday  `json:"day"`
-	//Hour         int           `json:"hour"`
-	//Minutes      int           `json:"minutes"`
 }
 
 func (wr *WasterResult) PopulateResult() {
@@ -82,6 +78,7 @@ func _writeTime(file *os.File, procs []WasterResult, colorogo *Colorogo, check b
 			log.Fatal(colorogo.Red + "Unable to read the file!" + colorogo.Reset)
 			return false
 		}
+		// TODO: file is not properly read, check this one
 		log.Printf("File .json: %b\n", outer)
 		existingData = outer
 	}
