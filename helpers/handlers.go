@@ -18,12 +18,6 @@ func HandleError(err error, msg string, toPanic bool) {
 
 // Remove removes value with index from the slice
 func Remove[T any](slice []T, index int) []T {
-	var newSlice []T
-	for i := 0; i < len(slice); i++ {
-		if i == index {
-			newSlice = append(slice[:i], slice[i+1:]...)
-			return newSlice
-		}
-	}
-	return nil
+	newSlice := append(slice[:index], slice[index+1:]...)
+	return newSlice
 }

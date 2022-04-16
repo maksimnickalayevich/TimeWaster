@@ -15,11 +15,14 @@ type TimeWaster struct {
 	colorogo      helpers.Colorogo
 	processFinder helpers.GoProc
 	workingPath   *string
+	results       []helpers.WasterResult
+	closeTimes    map[string]time.Time
 }
 
 func (t *TimeWaster) StartMainLoop(platform string) int {
 	colorogo := helpers.InitColorogo()
 	t.IsRunning = true
+	t.closeTimes = make(map[string]time.Time)
 
 	// Binds colorogo to TimeWaster
 	t.colorogo = colorogo
@@ -39,13 +42,21 @@ func (t *TimeWaster) StartMainLoop(platform string) int {
 			t.IsRunning = false
 		case "1":
 			t.TrackTime()
+
+			log.Println(t.colorogo.Green + "Updating .json with your spent time" + t.colorogo.Reset)
+
+			err := helpers.AppendToStorage(helpers.JsonFile, *t.workingPath, t.results)
+			if err != nil {
+				log.Fatal(t.colorogo.Red + "Error happened while updating time.json file" + t.colorogo.Reset)
+				return 0
+			}
+
 		default:
 			fmt.Println(t.colorogo.Red + "You should choose only from suggested options: 1; q/2")
 		}
 	}
 	fmt.Print(colorogo.Reset)
 
-	log.Println(t.colorogo.Green + "Updating .json with your spent time" + t.colorogo.Reset)
 	return 1
 }
 
@@ -70,10 +81,35 @@ func (t *TimeWaster) TrackTime() {
 		log.Println(t.colorogo.Yellow + "Press any button with option again." + t.colorogo.Reset)
 		return
 	}
-
+	deref := *processes
 	log.Println(t.colorogo.Yellow + "Starting time-tracking of your apps..." + t.colorogo.Reset)
 
+	var results []helpers.WasterResult
+	results = append(results, helpers.WasterResult{
+		Name:     deref[0].GetName(),
+		OpenTime: time.Now(),
+	})
+
 	t.startConcurrentTrack(time.Duration(5)*time.Second, processes)
+
+	// Update with populated values
+	results = t.updateResults(&results)
+
+	t.results = results
+}
+
+func (t *TimeWaster) updateResults(res *[]helpers.WasterResult) []helpers.WasterResult {
+	var newRes []helpers.WasterResult
+
+	for _, proc := range *res {
+		closeTime, _ := t.closeTimes[proc.Name]
+		log.Printf(t.colorogo.Purple+"App %s were closed"+t.colorogo.Reset, proc.Name)
+		proc.CloseTime = closeTime
+		proc.PopulateResult()
+		newRes = append(newRes, proc)
+	}
+
+	return newRes
 }
 
 func (t *TimeWaster) startConcurrentTrack(duration time.Duration, apps *[]helpers.WasterProcess) {
@@ -89,7 +125,6 @@ func (t *TimeWaster) startConcurrentTrack(duration time.Duration, apps *[]helper
 	return
 }
 
-// TODO: think on what should be returned, assume write to chan time.Time
 // checkStatus checks status of apps every duration (seconds), until they are not closed or until user didn't close
 // time-tracking
 func (t *TimeWaster) checkStatus(duration time.Duration, inProcess chan bool, apps *[]helpers.WasterProcess, ctx context.Context) {
@@ -111,9 +146,13 @@ func (t *TimeWaster) checkStatus(duration time.Duration, inProcess chan bool, ap
 			if difference >= int64(duration.Seconds()) {
 				log.Println(t.colorogo.Yellow + "Checking status of running apps" + t.colorogo.Reset)
 				for i, app := range derefApps {
+					// Save in times to check what
+					t.closeTimes[app.GetName()] = time.Now()
 					status := t.checkAppStatus(app)
 					if !status {
 						derefApps = helpers.Remove(derefApps, i)
+						// Update close time by proc name
+						t.closeTimes[app.GetName()] = time.Now()
 					}
 				}
 				lastCheck = time.Now().UTC().Unix()
@@ -155,17 +194,15 @@ func (t *TimeWaster) catchKeyboardEvent(inProcess chan bool, ctxCancel context.C
 
 // checkAppStatus Checks does app still running, or it's now closed
 // Output: running -> true; closed -> false
-// N.B. os.FindProcess() doesn't work as it always finds process even if
-// it's not running
 func (t *TimeWaster) checkAppStatus(app helpers.WasterProcess) bool {
-	p, _ := syscall.OpenProcess(ACCESS, false, uint32(app.GetPid()))
+	p, _ := syscall.OpenProcess(helpers.ACCESS, false, uint32(app.GetPid()))
 	var exitCode uint32
 	exitCodeErr := syscall.GetExitCodeProcess(p, &exitCode)
 	if exitCodeErr != nil {
 		log.Printf(t.colorogo.Red+"Smth went wrong %e"+t.colorogo.Reset, exitCodeErr)
 		return false
 	}
-	if exitCode != STILL_ALIVE {
+	if exitCode != helpers.StillAlive {
 		return false
 	}
 	return true
