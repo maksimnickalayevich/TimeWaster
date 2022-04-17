@@ -82,13 +82,11 @@ func (t *TimeWaster) TrackTime() {
 		return
 	}
 	deref := *processes
+
 	log.Println(t.colorogo.Yellow + "Starting time-tracking of your apps..." + t.colorogo.Reset)
 
 	var results []helpers.WasterResult
-	results = append(results, helpers.WasterResult{
-		Name:     deref[0].GetName(),
-		OpenTime: time.Now(),
-	})
+	results = t.Convert(deref)
 
 	t.startConcurrentTrack(time.Duration(5)*time.Second, processes)
 
@@ -98,12 +96,28 @@ func (t *TimeWaster) TrackTime() {
 	t.results = results
 }
 
+// Convert Converts WasterProcesses to WasterResults and initializes them with basic data.
+// e.g. {Name, OpenTime}
+func (t *TimeWaster) Convert(what []helpers.WasterProcess) []helpers.WasterResult {
+	var converted []helpers.WasterResult
+
+	for _, wp := range what {
+		newWasterRes := helpers.WasterResult{
+			Name:     wp.GetName(),
+			OpenTime: time.Now(),
+		}
+		converted = append(converted, newWasterRes)
+	}
+
+	return converted
+}
+
+// updateResults updates results of a time tracking (CloseTime + other fields of WasterResult struct)
 func (t *TimeWaster) updateResults(res *[]helpers.WasterResult) []helpers.WasterResult {
 	var newRes []helpers.WasterResult
 
 	for _, proc := range *res {
 		closeTime, _ := t.closeTimes[proc.Name]
-		log.Printf(t.colorogo.Purple+"App %s were closed"+t.colorogo.Reset, proc.Name)
 		proc.CloseTime = closeTime
 		proc.PopulateResult()
 		newRes = append(newRes, proc)
@@ -144,7 +158,6 @@ func (t *TimeWaster) checkStatus(duration time.Duration, inProcess chan bool, ap
 			difference := now - lastCheck
 
 			if difference >= int64(duration.Seconds()) {
-				log.Println(t.colorogo.Yellow + "Checking status of running apps" + t.colorogo.Reset)
 				for i, app := range derefApps {
 					// Save in times to check what
 					t.closeTimes[app.GetName()] = time.Now()
@@ -162,6 +175,7 @@ func (t *TimeWaster) checkStatus(duration time.Duration, inProcess chan bool, ap
 	log.Println(t.colorogo.Blue + "Your apps were closed" + t.colorogo.Reset)
 }
 
+// closeRequest runs the loop with listening the user input. If input == q/2 closes goroutine with time tracking via context
 func (t *TimeWaster) closeRequest(inProcess chan bool, ctxCancel context.CancelFunc) {
 	log.Println(t.colorogo.Yellow + "To stop tracking press q or 2" + t.colorogo.Reset)
 	for {

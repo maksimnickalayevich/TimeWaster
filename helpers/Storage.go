@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -9,13 +10,14 @@ import (
 )
 
 type WasterResult struct {
-	OpenTime     time.Time `json:"-"`
-	CloseTime    time.Time `json:"-"`
-	LastExecTime string    `json:"lastExecTime"`
-	StopTime     string    `json:"stopTime"`
-	TotalTime    string    `json:"totalTime"`
-	LastSession  string    `json:"lastSession"`
-	Name         string    `json:"name"`
+	OpenTime            time.Time     `json:"-"`
+	CloseTime           time.Time     `json:"-"`
+	LastExecTime        string        `json:"lastExecTime"`
+	StopTime            string        `json:"-"`
+	TotalTime           string        `json:"totalTime"`
+	LastSession         string        `json:"lastSession"`
+	Name                string        `json:"name"`
+	UnparsedLastSession time.Duration `json:"-"`
 }
 
 func (wr *WasterResult) PopulateResult() {
@@ -26,13 +28,15 @@ func (wr *WasterResult) PopulateResult() {
 
 func (wr *WasterResult) GetLastSession() string {
 	session := wr.CloseTime.Sub(wr.OpenTime)
+	wr.UnparsedLastSession = session
+
 	parsed, err := time.ParseDuration(session.String())
 	if err != nil {
 		log.Fatal("Unable to parse session time")
 		return ""
 	}
 
-	sessionResult := fmt.Sprintf("Session: %v", parsed.Truncate(time.Second).String())
+	sessionResult := fmt.Sprintf("%s", parsed.Truncate(time.Second).String())
 	return sessionResult
 }
 
@@ -58,45 +62,53 @@ func AppendToStorage(storageType StorageType, path string, procs []WasterResult)
 }
 
 func _createJsonFile(path string, colorogo *Colorogo) (*os.File, error) {
-	file, err := os.Create(path + "/time.json")
-	if err != nil {
-		log.Printf(colorogo.Red+"Unable to create time.json at %s"+colorogo.Reset, path)
-		return nil, err
+	// Check if file already exists
+	fullFileName := path + "\\" + "time.json"
+	file, err := os.OpenFile(fullFileName, os.O_WRONLY, 0755)
+	// if file doesn't exist create it
+	if errors.Is(err, os.ErrNotExist) {
+		file, err := os.Create(fullFileName)
+		if err != nil {
+			log.Printf(colorogo.Red+"Unable to create time.json at %s"+colorogo.Reset, path)
+			return nil, err
+		}
+		return file, nil
 	}
+
 	return file, err
 }
 
-func _writeTime(file *os.File, procs []WasterResult, colorogo *Colorogo, check bool) bool {
+func _writeTime(file *os.File, tracks []WasterResult, colorogo *Colorogo, check bool) bool {
 	// Create byte buf to extend it with existing data
 	var existingData []byte
-
 	// Check does the file already exist and has some info, or not
 	if check {
-		// Read file and if not empty update info
-		outer, err := os.ReadFile(file.Name())
+		content, err := os.ReadFile(file.Name())
 		if err != nil {
-			log.Fatal(colorogo.Red + "Unable to read the file!" + colorogo.Reset)
+			log.Println(colorogo.Red + "Unable to read the file time.json" + colorogo.Reset)
 			return false
 		}
-		// TODO: file is not properly read, check this one
-		log.Printf("File .json: %b\n", outer)
-		existingData = outer
+		existingData = append(existingData, content...)
 	}
 
-	// Write to a file again
-	// TODO: Take care of adding totalTime field
-	var dataToWrite []byte
-
-	for _, proc := range procs {
-		jsonifiedWr, err := json.Marshal(proc)
+	var processes []WasterResult
+	if len(existingData) > 0 {
+		err := json.Unmarshal(existingData, &processes)
 		if err != nil {
-			log.Fatal(colorogo.Red + "Unable to convert process result to json" + colorogo.Reset)
+			log.Println("Error happened while unmarshaling json", err)
 		}
-		dataToWrite = append(existingData, jsonifiedWr...)
+	}
+
+	processes = append(processes, tracks...)
+	updated := updateExisting(processes)
+	marshaledProcesses, err := json.MarshalIndent(updated, "", " ")
+	if err != nil {
+		log.Println(colorogo.Red + "Unable to marshal data" + colorogo.Reset)
+		return false
 	}
 
 	// Append data to existing
-	err := os.WriteFile(file.Name(), dataToWrite, os.FileMode(os.O_WRONLY))
+	_, err = file.Write(marshaledProcesses)
 	if err != nil {
 		log.Fatal(colorogo.Red + "Unable to write spent time to file" + colorogo.Reset)
 		return false
@@ -108,4 +120,41 @@ func _writeTime(file *os.File, procs []WasterResult, colorogo *Colorogo, check b
 		log.Println(colorogo.Red + "Unable to close the file" + colorogo.Reset)
 	}
 	return true
+}
+
+// updateExisting loops over all the processes (existing and new) and if process
+// already wrote to .json file updates it with last info + populates total time field
+func updateExisting(processes []WasterResult) []WasterResult {
+	var updated []WasterResult
+
+	for i := 0; i < len(processes); i++ {
+		if len(processes) == 1 {
+			updated = append(updated, _populateNewProcess(processes[i], processes[i]))
+		}
+		for j := i + 1; j < len(processes); j++ {
+			if processes[i].Name == processes[j].Name {
+				updated = append(updated, _populateNewProcess(processes[i], processes[j]))
+			}
+		}
+	}
+	return updated
+}
+
+func _populateNewProcess(previous WasterResult, current WasterResult) WasterResult {
+	totalTime, _ := time.ParseDuration(previous.TotalTime)
+	lastSession := current.UnparsedLastSession
+	newTotalTime := fmt.Sprintf("%s", (totalTime + lastSession).Truncate(time.Second).String())
+
+	newProc := WasterResult{
+		Name:                current.Name,
+		OpenTime:            current.OpenTime,
+		CloseTime:           current.CloseTime,
+		LastExecTime:        current.LastExecTime,
+		StopTime:            current.StopTime,
+		TotalTime:           newTotalTime,
+		LastSession:         current.LastSession,
+		UnparsedLastSession: lastSession,
+	}
+
+	return newProc
 }
