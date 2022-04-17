@@ -163,9 +163,11 @@ func (t *TimeWaster) checkStatus(duration time.Duration, inProcess chan bool, ap
 					t.closeTimes[app.GetName()] = time.Now()
 					status := t.checkAppStatus(app)
 					if !status {
+						// TODO: properly remove values from slice, without shifting
 						derefApps = helpers.Remove(derefApps, i)
 						// Update close time by proc name
 						t.closeTimes[app.GetName()] = time.Now()
+						log.Printf(t.colorogo.Yellow+"App %s was closed"+t.colorogo.Reset, app.GetName())
 					}
 				}
 				lastCheck = time.Now().UTC().Unix()
