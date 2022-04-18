@@ -99,8 +99,7 @@ func _writeTime(file *os.File, tracks []WasterResult, colorogo *Colorogo, check 
 		}
 	}
 
-	processes = append(processes, tracks...)
-	updated := updateExisting(processes)
+	updated := updateExisting(processes, tracks)
 	marshaledProcesses, err := json.MarshalIndent(updated, "", " ")
 	if err != nil {
 		log.Println(colorogo.Red + "Unable to marshal data" + colorogo.Reset)
@@ -124,17 +123,31 @@ func _writeTime(file *os.File, tracks []WasterResult, colorogo *Colorogo, check 
 
 // updateExisting loops over all the processes (existing and new) and if process
 // already wrote to .json file updates it with last info + populates total time field
-func updateExisting(processes []WasterResult) []WasterResult {
+func updateExisting(existingProcs []WasterResult, newProcs []WasterResult) []WasterResult {
 	var updated []WasterResult
+	existingMap := make(map[string]WasterResult)
+	// Populate map
+	for _, ep := range existingProcs {
+		existingMap[ep.Name] = ep
+	}
 
-	for i := 0; i < len(processes); i++ {
-		if len(processes) == 1 {
-			updated = append(updated, _populateNewProcess(processes[i], processes[i]))
+	// Add new and update existing
+	for _, newEp := range newProcs {
+		// Check does it already wrote to file, if yes, update it
+		v, ok := existingMap[newEp.Name]
+		if ok && !Exists(updated, v.Name) {
+			updatedProc := _populateNewProcess(v, newEp)
+			updated = append(updated, updatedProc)
+			// Add new entry to the updated slice
+		} else if !Exists(updated, newEp.Name) {
+			updatedProc := _populateNewProcess(newEp, newEp)
+			updated = append(updated, updatedProc)
 		}
-		for j := i + 1; j < len(processes); j++ {
-			if processes[i].Name == processes[j].Name {
-				updated = append(updated, _populateNewProcess(processes[i], processes[j]))
-			}
+	}
+
+	for name, wr := range existingMap {
+		if !Exists(updated, name) {
+			updated = append(updated, wr)
 		}
 	}
 	return updated

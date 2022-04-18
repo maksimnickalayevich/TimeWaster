@@ -158,14 +158,15 @@ func (t *TimeWaster) checkStatus(duration time.Duration, inProcess chan bool, ap
 			difference := now - lastCheck
 
 			if difference >= int64(duration.Seconds()) {
-				for i, app := range derefApps {
+				for _, app := range derefApps {
 					// Save in times to check what
 					t.closeTimes[app.GetName()] = time.Now()
 					status := t.checkAppStatus(app)
 					if !status {
-						derefApps = helpers.Remove(derefApps, i)
+						derefApps = helpers.Remove(derefApps, app.GetName())
 						// Update close time by proc name
 						t.closeTimes[app.GetName()] = time.Now()
+						log.Printf(t.colorogo.Yellow+"App %s was closed"+t.colorogo.Reset, app.GetName())
 					}
 				}
 				lastCheck = time.Now().UTC().Unix()
