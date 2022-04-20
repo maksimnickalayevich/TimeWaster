@@ -28,7 +28,6 @@ func (t *TimeWaster) StartMainLoop(platform string) int {
 	t.colorogo = colorogo
 
 	fmt.Printf(colorogo.Blue+"Welcome to TimeWaster for %s!\n", platform)
-	// TODO: Move this to separate struct in order to have access to the menu from every part of a programm
 	fmt.Println(colorogo.Purple + "What would you like to do?")
 	fmt.Println(colorogo.Purple + "1. Track time of your app \n2. Press q/2 to exit")
 	for t.IsRunning {
@@ -43,12 +42,15 @@ func (t *TimeWaster) StartMainLoop(platform string) int {
 		case "1":
 			t.TrackTime()
 
-			log.Println(t.colorogo.Green + "Updating .json with your spent time" + t.colorogo.Reset)
+			// In order not to write nulls to the file, write only when we have at least 1 app to write
+			if len(t.closeTimes) > 0 {
+				log.Println(t.colorogo.Green + "Updating .json with your spent time" + t.colorogo.Reset)
 
-			err := helpers.AppendToStorage(helpers.JsonFile, *t.workingPath, t.results)
-			if err != nil {
-				log.Fatal(t.colorogo.Red + "Error happened while updating time.json file" + t.colorogo.Reset)
-				return 0
+				err := helpers.AppendToStorage(helpers.JsonFile, *t.workingPath, t.results)
+				if err != nil {
+					log.Fatal(t.colorogo.Red + "Error happened while updating time.json file" + t.colorogo.Reset)
+					return 0
+				}
 			}
 
 		default:
