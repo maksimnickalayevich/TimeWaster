@@ -100,7 +100,7 @@ func _writeTime(file *os.File, tracks []WasterResult, colorogo *Colorogo, check 
 	}
 
 	updated := updateExisting(processes, tracks)
-	marshaledProcesses, err := json.MarshalIndent(updated, "", " ")
+	marshaledProcesses, err := json.Marshal(updated)
 	if err != nil {
 		log.Println(colorogo.Red + "Unable to marshal data" + colorogo.Reset)
 		return false
